@@ -1,4 +1,4 @@
-#	$OpenBSD: dot.profile,v 1.11 1998/10/15 07:32:05 deraadt Exp $
+#	$OpenBSD: dot.profile,v 1.13 2000/01/30 01:21:22 deraadt Exp $
 #	$NetBSD: dot.profile,v 1.1 1995/12/18 22:54:43 pk Exp $
 #
 # Copyright (c) 1995 Jason R. Thorpe
@@ -37,6 +37,7 @@ export HISTFILE=/.sh_history
 umask 022
 
 set -o emacs # emacs-style command line editing
+alias dmesg="cat /kern/msgbuf"
 
 # XXX
 # the TERM/EDITOR stuff is really well enough parameterized to be moved
@@ -46,11 +47,6 @@ set -o emacs # emacs-style command line editing
 # terminals believed to be in termcap, default TERM
 TERMS="sun vt* pcvt* pc3 dumb"
 TERM=sun
-
-# editors believed to be in $EDITBIN, smart and dumb defaults
-DUMB=ed
-EDITBIN=/bin
-EDITUBIN=/usr/bin
 
 if [ "X${DONEPROFILE}" = "X" ]; then
 	DONEPROFILE=YES
