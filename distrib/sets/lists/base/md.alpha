@@ -758,6 +758,9 @@
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/adwlib.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/aic6360reg.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/aic6360var.ph
+./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/aic79xx.ph
+./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/aic79xx_inline.ph
+./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/aic79xx_openbsd.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/aic7xxx.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/aic7xxx_cam.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/aic7xxx_inline.ph
@@ -1122,6 +1125,7 @@
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/pci/tgavar.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/pci/ubsecreg.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/pci/ubsecvar.ph
+./usr/libdata/perl5/site_perl/alpha-openbsd/dev/pci/usb_pci.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/pci/vga_pcivar.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/pci/wdt50x.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/pci/xmaciireg.ph
@@ -1267,6 +1271,8 @@
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/tc/tcreg.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/tc/tcvar.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/usb
+./usr/libdata/perl5/site_perl/alpha-openbsd/dev/usb/ehcireg.ph
+./usr/libdata/perl5/site_perl/alpha-openbsd/dev/usb/ehcivar.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/usb/ezload.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/usb/hid.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/usb/if_auereg.ph
@@ -1336,6 +1342,7 @@
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/wsfont/vt220l8x8.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/wsfont/wsfont.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dirent.ph
+./usr/libdata/perl5/site_perl/alpha-openbsd/dis-asm.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/disktab.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dlfcn.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/elf_abi.ph
@@ -2149,7 +2156,3 @@
 ./usr/sbin/wsconscfg
 ./usr/sbin/wsfontload
 ./usr/sbin/wsmoused
-./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/aic79xx.ph
-./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/aic79xx_inline.ph
-./usr/libdata/perl5/site_perl/alpha-openbsd/dev/ic/aic79xx_openbsd.ph
-./usr/libdata/perl5/site_perl/alpha-openbsd/dis-asm.ph
