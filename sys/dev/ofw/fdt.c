@@ -176,6 +176,7 @@ skip_node_name(u_int32_t *ptr)
 /*
  * Retrieves node property, the returned pointer is inside the fdt tree,
  * so we should not modify content pointed by it directly.
+ * A NULL out parameter will cause this function to only return the size.
  */
 int
 fdt_node_property(void *node, char *name, char **out)
@@ -183,7 +184,7 @@ fdt_node_property(void *node, char *name, char **out)
 	u_int32_t *ptr;
 	u_int32_t nameid;
 	char *tmp;
-	
+
 	if (!tree_inited)
 		return -1;
 
@@ -198,7 +199,8 @@ fdt_node_property(void *node, char *name, char **out)
 		nameid = betoh32(*(ptr + 2)); /* id of name in strings table */
 		tmp = fdt_get_str(nameid);
 		if (!strcmp(name, tmp)) {
-			*out = (char *)(ptr + 3); /* beginning of the value */
+			if (out != NULL)
+				*out = (char *)(ptr + 3); /* begining of the value */
 			return betoh32(*(ptr + 1)); /* size of value */
 		}
 		ptr = skip_property(ptr);
@@ -470,6 +472,38 @@ void *
 fdt_find_phandle(uint32_t phandle)
 {
 	return fdt_find_phandle_recurse(fdt_next_node(0), phandle);
+}
+
+/*
+ * Find the first node which is compatible.
+ */
+void *
+fdt_find_compatible_node(void *node, char *compatible)
+{
+	void *child;
+
+	while (node != NULL) {
+		if (fdt_is_compatible(node, compatible))
+			return node;
+
+		child = fdt_child_node(node);
+		if (child != NULL) {
+			child = fdt_find_compatible_node(
+			   fdt_child_node(node), compatible);
+			if (child != NULL)
+				return child;
+		}
+
+		node = fdt_next_node(node);
+	}
+
+	return NULL;
+}
+
+void *
+fdt_find_compatible(char *compatible)
+{
+	return fdt_find_compatible_node(fdt_next_node(0), compatible);
 }
 
 /*

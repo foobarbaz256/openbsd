@@ -328,6 +328,8 @@ do {									\
 		};							\
 		cpu_drain_writebuf();					\
 	}								\
+	asm("mcr p15, 0, r0, c8, c7, 0 /* Invalidate entire unified TLB */");	\
+	cpu_drain_writebuf();						\
 } while (/*CONSTCOND*/0)
 
 #define	PTE_SYNC_RANGE(pte, cnt)					\
@@ -344,6 +346,8 @@ do {									\
 		};							\
 		cpu_drain_writebuf();					\
 	}								\
+	asm("mcr p15, 0, r0, c8, c7, 0 /* Invalidate entire unified TLB */");	\
+	cpu_drain_writebuf();						\
 } while (/*CONSTCOND*/0)
 
 #define	l1pte_valid(pde)	(((pde) & L1_TYPE_MASK) != L1_TYPE_INV)

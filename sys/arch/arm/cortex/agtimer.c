@@ -28,7 +28,10 @@
 #include <arm/cpufunc.h>
 #include <machine/bus.h>
 #include <machine/intr.h>
+#include <machine/fdt.h>
 #include <arm/cortex/cortex.h>
+
+#include <dev/ofw/openfirm.h>
 
 /* registers */
 #define GTIMER_CNTP_CTL_ENABLE		(1 << 0)
@@ -70,6 +73,7 @@ struct agtimer_softc {
 };
 
 int		agtimer_match(struct device *, void *, void *);
+int		agtimer_fdt_match(struct device *, void *, void *);
 void		agtimer_attach(struct device *, struct device *, void *);
 uint64_t	agtimer_readcnt64(struct agtimer_softc *sc);
 int		agtimer_intr(void *);
@@ -90,6 +94,10 @@ void	*ampintc_intr_establish(int, int, int (*)(void *), void *, char *);
 
 struct cfattach agtimer_ca = {
 	sizeof (struct agtimer_softc), agtimer_match, agtimer_attach
+};
+
+struct cfattach agtimer_fdt_ca = {
+	sizeof (struct agtimer_softc), agtimer_fdt_match, agtimer_attach
 };
 
 struct cfdriver agtimer_cd = {
@@ -160,12 +168,42 @@ agtimer_match(struct device *parent, void *cfdata, void *aux)
 	return 0;
 }
 
+int
+agtimer_fdt_match(struct device *parent, void *cfdata, void *aux)
+{
+	struct fdt_attach_args *fa = (struct fdt_attach_args *)aux;
+	char buffer[128];
+
+	if (fa->fa_node == 0)
+		return (0);
+
+	if (!OF_getprop(fa->fa_node, "compatible", buffer,
+	    sizeof(buffer)))
+		return (0);
+
+	if (strcmp(buffer, "arm,armv7-timer"))
+		return (0);
+
+	return (1);
+}
+
 void
 agtimer_attach(struct device *parent, struct device *self, void *args)
 {
 	struct agtimer_softc *sc = (struct agtimer_softc *)self;
+	struct fdt_attach_args *fa = args;
+	int node = fa->fa_node;
+	int i;
 
-	sc->sc_ticks_per_second = agtimer_frequency;
+	if (node) {
+		OF_getprop(node, "clock-frequency", &agtimer_frequency,
+		    sizeof(agtimer_frequency));
+		agtimer_frequency = betoh32(agtimer_frequency);
+	}
+
+	if (agtimer_frequency)
+		sc->sc_ticks_per_second = agtimer_frequency;
+
 	printf(": tick rate %d KHz\n", sc->sc_ticks_per_second /1000);
 
 	/* XXX: disable user access */
@@ -174,6 +212,23 @@ agtimer_attach(struct device *parent, struct device *self, void *args)
 	evcount_attach(&sc->sc_clk_count, "clock", NULL);
 	evcount_attach(&sc->sc_stat_count, "stat", NULL);
 #endif
+
+	/* establish interrupts */
+	/* TODO: Add interrupt FDT API. */
+	if (node) {
+		/* Setup secure, non-secure and virtual timer IRQs. */
+		for (i = 0; i < 4; i++) {
+			arm_intr_establish_fdt_idx(node, i, IPL_CLOCK,
+			    agtimer_intr, NULL, "tick");
+		}
+	} else {
+		ampintc_intr_establish(27, IPL_CLOCK, agtimer_intr,
+		    NULL, "tick");
+		ampintc_intr_establish(29, IPL_CLOCK, agtimer_intr,
+		    NULL, "tick");
+		ampintc_intr_establish(30, IPL_CLOCK, agtimer_intr,
+		    NULL, "tick");
+	}
 
 	/*
 	 * private timer and interrupts not enabled until
@@ -300,16 +355,6 @@ agtimer_cpu_initclocks()
 	sc->sc_ticks_per_intr = sc->sc_ticks_per_second / hz;
 	sc->sc_ticks_err_cnt = sc->sc_ticks_per_second % hz;
 	pc->pc_ticks_err_sum = 0;
-
-	/* establish interrupts */
-	/* XXX - irq */
-
-	/* secure physical timer */
-	ampintc_intr_establish(29, IPL_CLOCK, agtimer_intr,
-	    NULL, "tick");
-	/* non-secure physical timer */
-	ampintc_intr_establish(30, IPL_CLOCK, agtimer_intr,
-	    NULL, "tick");
 
 	next = agtimer_readcnt64(sc) + sc->sc_ticks_per_intr;
 	pc->pc_nexttickevent = pc->pc_nextstatevent = next;

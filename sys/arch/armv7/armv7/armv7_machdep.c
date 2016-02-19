@@ -832,6 +832,9 @@ initarm(void *arg0, void *arg1, void *arg2)
 #endif
 	printf("board type: %u\n", board_id);
 
+	/* Enable Data Cache to allow atomics. */
+	cpu_control(CPU_CONTROL_DC_ENABLE, CPU_CONTROL_DC_ENABLE);
+
 	/* We return the new stack pointer address */
 	return(kernelstack.pv_va + USPACE_SVC_STACK_TOP);
 }

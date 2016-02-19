@@ -6,6 +6,7 @@ makeoptions	KERNEL_BASE_VIRT="0xc0300000"
 
 maxusers	4			# estimated number of users
 option		CPU_ARMv7		# Support the ARMv7
+option		DDB		# in-kernel debugger
 
 option		TIMEZONE=0
 option		DST=0
@@ -37,6 +38,12 @@ ampintc*	at fdt?
 amptimer*	at cortex?
 agtimer*	at cortex?
 armliicc*	at cortex?
+
+# FDT
+fdt0		at mainbus?
+ampintc*	at fdt?
+agtimer*	at fdt?
+pluart*		at fdt?
 
 # iMX
 imx0		at mainbus?		# iMX SoC
@@ -128,6 +135,19 @@ crosec*		at iic?
 wskbd*		at crosec? mux 1
 pcfrtc*		at iic?
 tpspmic*	at iic?
+
+# Broadcom
+bcmintc*	at fdt?
+bcmmuart*	at fdt?
+bcmpm*		at fdt?
+bcmmbox*	at fdt?
+bcmgpio*	at fdt?
+gpio*		at bcmgpio?
+bcmsdhc*	at fdt?
+sdhc*		at bcmsdhc?
+sdmmc*		at sdhc?
+dwctwo*		at fdt?
+usb*		at dwctwo?
 
 # virtio devices
 vioblk*		at virtio?

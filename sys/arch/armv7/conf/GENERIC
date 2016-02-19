@@ -34,10 +34,14 @@ cpu0		at mainbus?
 # Cortex-A9
 cortex0		at mainbus?
 ampintc*	at cortex?
-ampintc*	at fdt?
 amptimer*	at cortex?
 agtimer*	at cortex?
 armliicc*	at cortex?
+
+# FDT
+ampintc*	at fdt?
+agtimer*	at fdt?
+pluart*		at fdt?
 
 # iMX
 imx0		at mainbus?		# iMX SoC
@@ -129,6 +133,19 @@ crosec*		at iic?
 wskbd*		at crosec? mux 1
 pcfrtc*		at iic?
 tpspmic*	at iic?
+
+# Broadcom
+bcmintc*	at fdt?
+bcmmuart*	at fdt?
+bcmpm*		at fdt?
+bcmmbox*	at fdt?
+bcmgpio*	at fdt?
+gpio*		at bcmgpio?
+bcmsdhc*	at fdt?
+sdhc*		at bcmsdhc?
+sdmmc*		at sdhc?
+dwctwo*		at fdt?
+usb*		at dwctwo?
 
 # virtio devices
 vioblk*		at virtio?

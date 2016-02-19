@@ -245,10 +245,13 @@ sdhc_host_found(struct sdhc_softc *sc, bus_space_tag_t iot,
 			hp->clkbase = SDHC_BASE_FREQ_KHZ(caps);
 	}
 	if (hp->clkbase == 0) {
-		/* The attachment driver must tell us. */
-		printf("%s: base clock frequency unknown\n",
-		    sc->sc_dev.dv_xname);
-		goto err;
+		if (sc->sc_clkbase == 0) {
+			/* The attachment driver must tell us. */
+			printf("%s: base clock frequency unknown\n",
+			    sc->sc_dev.dv_xname);
+			goto err;
+		}
+		hp->clkbase = sc->sc_clkbase;
 	} else if (hp->clkbase < 10000 || hp->clkbase > max_clock) {
 		printf("%s: base clock frequency out of range: %u MHz\n",
 		    sc->sc_dev.dv_xname, hp->clkbase / 1000);
@@ -660,7 +663,8 @@ sdhc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int timing)
 	if (freq == SDMMC_SDCLK_OFF)
 		goto ret;
 
-	if (timing == SDMMC_TIMING_LEGACY)
+	if (timing == SDMMC_TIMING_LEGACY ||
+	    ISSET(hp->sc->sc_flags, SDHC_F_NO_HS_BIT))
 		HCLR1(hp, SDHC_HOST_CTL, SDHC_HIGH_SPEED);
 	else
 		HSET1(hp, SDHC_HOST_CTL, SDHC_HIGH_SPEED);

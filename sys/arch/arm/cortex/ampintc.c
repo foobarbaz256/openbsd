@@ -183,6 +183,8 @@ void		*ampintc_intr_establish(int, int, int (*)(void *), void *,
 		    char *);
 void		*ampintc_intr_establish_ext(int, int, int (*)(void *), void *,
 		    char *);
+void		*ampintc_intr_establish_fdt_idx(int, int, int,
+		    int (*)(void *), void *, char *);
 void		 ampintc_intr_disestablish(void *);
 void		 ampintc_irq_handler(void *);
 const char	*ampintc_intr_string(void *);
@@ -349,6 +351,9 @@ ampintc_attach_fdt(struct device *parent, struct device *self,
 	sc->sc_ncells = betoh32(sc->sc_ncells);
 
 	ampintc_attach(parent, self, args);
+
+	arm_set_intr_handler_fdt(fa->fa_node,
+	    ampintc_intr_establish_fdt_idx);
 }
 
 void
@@ -646,6 +651,35 @@ ampintc_intr_establish_ext(int irqno, int level, int (*func)(void *),
     void *arg, char *name)
 {
 	return ampintc_intr_establish(irqno+32, level, func, arg, name);
+}
+
+void *
+ampintc_intr_establish_fdt_idx(int node, int idx, int level,
+    int (*func)(void *), void *arg, char *name)
+{
+	struct ampintc_softc	*sc = ampintc;
+	int			 nints = sc->sc_ncells * (idx + 1);
+	int			 intr_elem = idx * sc->sc_ncells;
+	int			 ints[nints];
+	int			 irq;
+
+	/* Load only parts needed from the interrupt property, not all. */
+	if (OF_getprop(node, "interrupts", ints,
+	    sizeof(ints)) < sizeof(ints))
+		panic("%s: no interrupts property", sc->sc_dev.dv_xname);
+
+	/* 2nd cell contains the interrupt number */
+	irq = betoh32(ints[intr_elem + 1]);
+
+	/* 1st cell contains type: 0 SPI (32-X), 1 PPI (16-31) */
+	if (betoh32(ints[intr_elem]) == 0)
+		irq += 32;
+	else if (betoh32(ints[intr_elem]) == 1)
+		irq += 16;
+	else
+		panic("%s: bogus interrupt type", sc->sc_dev.dv_xname);
+
+	return ampintc_intr_establish(irq, level, func, arg, name);
 }
 
 void *

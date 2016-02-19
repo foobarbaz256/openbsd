@@ -16,6 +16,7 @@ file	arch/arm/cortex/amptimer.c		amptimer
 
 device	agtimer
 attach	agtimer at cortex
+attach	agtimer at fdt with agtimer_fdt
 file	arch/arm/cortex/agtimer.c		agtimer
 
 device	armliicc

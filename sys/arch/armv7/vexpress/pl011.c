@@ -39,9 +39,7 @@
 
 #include <machine/bus.h>
 //#include <machine/clock.h>
-#if NFDT > 0
 #include <machine/fdt.h>
-#endif
 #include <arm/armv7/armv7var.h>
 #include <armv7/vexpress/pl011reg.h>
 #include <armv7/vexpress/pl011var.h>
@@ -49,6 +47,7 @@
 #include <armv7/armv7/armv7_machdep.h>
 
 #include <dev/ofw/fdt.h>
+#include <dev/ofw/openfirm.h>
 
 #define DEVUNIT(x)      (minor(x) & 0x7f)
 #define DEVCUA(x)       (minor(x) & 0x80)
@@ -98,6 +97,9 @@ struct pl011_softc {
 int     pl011probe(struct device *parent, void *self, void *aux);
 void    pl011attach(struct device *parent, struct device *self, void *aux);
 
+int     pl011probe_fdt(struct device *parent, void *self, void *aux);
+void    pl011attach_fdt(struct device *parent, struct device *self, void *aux);
+
 void pl011cnprobe(struct consdev *cp);
 void pl011cnprobe(struct consdev *cp);
 void pl011cninit(struct consdev *cp);
@@ -131,6 +133,10 @@ struct cfattach pluart_ca = {
 	sizeof(struct pl011_softc), pl011probe, pl011attach
 };
 
+struct cfattach pluart_fdt_ca = {
+	sizeof(struct pl011_softc), pl011probe_fdt, pl011attach_fdt
+};
+
 bus_space_tag_t	pl011consiot;
 bus_space_handle_t pl011consioh;
 bus_addr_t	pl011consaddr;
@@ -154,14 +160,15 @@ pl011_init_cons(void)
 int
 pl011probe(struct device *parent, void *self, void *aux)
 {
-#if NFDT > 0
-	struct armv7_attach_args *aa = aux;
-
-	if (fdt_node_compatible("arm,pl011", aa->aa_node))
-		return 1;
-#endif
-
 	return 0;
+}
+
+int
+pl011probe_fdt(struct device *parent, void *self, void *aux)
+{
+	struct fdt_attach_args *faa = aux;
+
+	return OF_is_compatible(faa->fa_node, "arm,pl011");
 }
 
 struct cdevsw pl011dev =
@@ -175,28 +182,9 @@ pl011attach(struct device *parent, struct device *self, void *args)
 	struct armv7mem mem;
 	int irq;
 
-#if NFDT > 0
-	if (aa->aa_node) {
-		struct fdt_memory fdtmem;
-
-		if (fdt_get_memory_address(aa->aa_node, 0, &fdtmem))
-			panic("%s: could not extract memory data from FDT",
-			  __func__);
-		mem.addr = fdtmem.addr;
-		mem.size = fdtmem.size;
-
-		if (fdt_node_property_ints(aa->aa_node, "interrupts",
-		    ints, 3) != 3)
-			panic("%s: could not extract interrupt data from FDT",
-			    __func__);
-		irq = ints[1];
-	} else
-#endif
-	{
-		irq = aa->aa_dev->irq[0];
-		mem.addr = aa->aa_dev->mem[0].addr;
-		mem.size = aa->aa_dev->mem[0].size;
-	}
+	irq = aa->aa_dev->irq[0];
+	mem.addr = aa->aa_dev->mem[0].addr;
+	mem.size = aa->aa_dev->mem[0].size;
 
 	sc->sc_irq = arm_intr_establish(irq, IPL_TTY, pl011_intr,
 	    sc, sc->sc_dev.dv_xname);
@@ -214,6 +202,43 @@ pl011attach(struct device *parent, struct device *self, void *args)
 
 	if(sc->sc_si == NULL)
 		panic("%s: can't establish soft interrupt.",
+		    sc->sc_dev.dv_xname);
+
+	bus_space_write_4(sc->sc_iot, sc->sc_ioh, UART_IMSC, (UART_IMSC_RXIM | UART_IMSC_TXIM));
+	bus_space_write_4(sc->sc_iot, sc->sc_ioh, UART_ICR, 0x7ff);
+	bus_space_write_4(sc->sc_iot, sc->sc_ioh, UART_LCR_H,
+	    bus_space_read_4(sc->sc_iot, sc->sc_ioh, UART_LCR_H) &
+	    ~UART_LCR_H_FEN);
+
+	printf("\n");
+}
+
+void
+pl011attach_fdt(struct device *parent, struct device *self, void *aux)
+{
+	struct pl011_softc *sc = (struct pl011_softc *) self;
+	struct fdt_attach_args *faa = aux;
+
+	if (faa->fa_nreg < 2)
+		return;
+
+	sc->sc_iot = faa->fa_iot;
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0],
+	    faa->fa_reg[1], 0, &sc->sc_ioh))
+		panic("%s: bus_space_map failed!", __func__);
+
+	sc->sc_irq = arm_intr_establish_fdt(faa->fa_node, IPL_TTY, pl011_intr,
+	    sc, sc->sc_dev.dv_xname);
+
+	if (faa->fa_reg[0] == pl011consaddr)
+		printf(" console");
+
+	timeout_set(&sc->sc_diag_tmo, pl011_diag, sc);
+	timeout_set(&sc->sc_dtr_tmo, pl011_raisedtr, sc);
+	sc->sc_si = softintr_establish(IPL_TTY, pl011_softint, sc);
+
+	if (sc->sc_si == NULL)
+		panic("%s: can't establish soft interrupt",
 		    sc->sc_dev.dv_xname);
 
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, UART_IMSC, (UART_IMSC_RXIM | UART_IMSC_TXIM));

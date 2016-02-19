@@ -187,6 +187,8 @@ bsd.${SOC}.umg: bsd
 	mkuboot -a arm -o linux -e ${KERNADDR_${SOC}} -l ${KERNADDR_${SOC}} \
 	    bsd bsd.${SOC}.umg
 .endfor
+bsd.RAW.umg: bsd
+	mkuboot -a arm -o linux -r bsd bsd.RAW.umg
 
 bsd.rd: bsd
 	cp bsd bsd.rd

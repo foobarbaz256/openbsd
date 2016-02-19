@@ -39,6 +39,7 @@ void	imxuart_init_cons(void);
 void	omapuart_init_cons(void);
 void	sxiuart_init_cons(void);
 void	pl011_init_cons(void);
+void	bcmmuart_init_cons(void);
 
 struct armv7_platform *imx_platform_match(void);
 struct armv7_platform *omap_platform_match(void);
@@ -99,11 +100,12 @@ platform_init_cons(void)
 		platform->init_cons();
 		return;
 	}
+	bcmmuart_init_cons();
 	exuart_init_cons();
 	imxuart_init_cons();
 	omapuart_init_cons();
 	sxiuart_init_cons();
-	pl011_init_cons();
+//	pl011_init_cons();
 }
 
 void

@@ -31,6 +31,8 @@ struct sdhc_softc {
 
 	bus_dma_tag_t sc_dmat;
 
+	uint32_t sc_clkbase;
+
 	int (*sc_card_detect)(struct sdhc_softc *);
 };
 
@@ -46,5 +48,6 @@ void	sdhc_needs_discover(struct sdhc_softc *);
 /* flag values */
 #define SDHC_F_NOPWR0		(1 << 0)
 #define SDHC_F_32BIT_ACCESS	(1 << 1)
+#define SDHC_F_NO_HS_BIT	(1 << 2)
 
 #endif
