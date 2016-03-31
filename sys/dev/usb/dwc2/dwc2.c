@@ -1743,6 +1743,20 @@ void dwc2_host_complete(struct dwc2_hsotg *hsotg, struct dwc2_qtd *qtd,
 		printf("%s: unknown error status %d\n", __func__, status);
 	}
 
+	if (xfer->status == USBD_NORMAL_COMPLETION) {
+		/*
+		 * control transfers with no data phase don't touch dmabuf, but
+		 * everything else does.
+		 */
+		if (!(xfertype == UE_CONTROL &&
+		    UGETW(xfer->request.wLength) == 0)) {
+			int rd = usbd_xfer_isread(xfer);
+
+			usb_syncmem(&xfer->dmabuf, 0, xfer->actlen,
+			    rd ? BUS_DMASYNC_POSTREAD : BUS_DMASYNC_POSTWRITE);
+		}
+	}
+
 	if (xfertype == UE_ISOCHRONOUS ||
 	    xfertype == UE_INTERRUPT) {
 		struct dwc2_pipe *dpipe = DWC2_XFER2DPIPE(xfer);
