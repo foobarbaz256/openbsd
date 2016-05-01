@@ -34,6 +34,7 @@ cpu0		at mainbus?
 # Cortex-A9
 cortex0		at mainbus?
 ampintc*	at cortex?
+ampintc*	at fdt?
 amptimer*	at cortex?
 agtimer*	at cortex?
 armliicc*	at cortex?

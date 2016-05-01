@@ -29,6 +29,9 @@
 #include <arm/cpufunc.h>
 #include <machine/bus.h>
 #include <arm/cortex/cortex.h>
+#include <arm/fdt.h>
+
+#include <dev/ofw/openfirm.h>
 
 /* offset from periphbase */
 #define ICP_ADDR	0x100
@@ -143,6 +146,7 @@ struct ampintc_softc {
 	bus_space_tag_t		 sc_iot;
 	bus_space_handle_t	 sc_d_ioh, sc_p_ioh;
 	struct evcount		 sc_spur;
+	int			 sc_ncells;
 };
 struct ampintc_softc *ampintc;
 
@@ -166,7 +170,10 @@ struct intrq {
 
 
 int		 ampintc_match(struct device *, void *, void *);
+int		 ampintc_match_fdt(struct device *, void *, void *);
 void		 ampintc_attach(struct device *, struct device *, void *);
+void		 ampintc_attach_cortex(struct device *, struct device *, void *);
+void		 ampintc_attach_fdt(struct device *, struct device *, void *);
 int		 ampintc_spllower(int);
 void		 ampintc_splx(int);
 int		 ampintc_splraise(int);
@@ -187,11 +194,23 @@ void		 ampintc_intr_disable(int);
 void		 ampintc_route(int, int , int);
 
 struct cfattach	ampintc_ca = {
-	sizeof (struct ampintc_softc), ampintc_match, ampintc_attach
+	sizeof (struct ampintc_softc), ampintc_match, ampintc_attach_cortex
+};
+
+struct cfattach	ampintc_fdt_ca = {
+	sizeof (struct ampintc_softc), ampintc_match_fdt, ampintc_attach_fdt
 };
 
 struct cfdriver ampintc_cd = {
 	NULL, "ampintc", DV_DULL
+};
+
+static char *ampintc_compatibles[] = {
+	"arm,gic",
+	"arm,cortex-a7-gic",
+	"arm,cortex-a9-gic",
+	"arm,cortex-a15-gic",
+	NULL
 };
 
 int
@@ -200,23 +219,38 @@ ampintc_match(struct device *parent, void *cfdata, void *aux)
 	return (1);
 }
 
+int
+ampintc_match_fdt(struct device *parent, void *cfdata, void *aux)
+{
+	struct fdt_attach_args *fa = (struct fdt_attach_args *)aux;
+	char buffer[128];
+	int i;
+
+	if (fa->fa_node == 0)
+		return (0);
+
+	if (!OF_getprop(fa->fa_node, "compatible", buffer,
+	    sizeof(buffer)))
+		return (0);
+
+	for (i = 0; ampintc_compatibles[i]; i++)
+		if (!strcmp(buffer, ampintc_compatibles[i]))
+			return (1);
+
+	return (0);
+}
+
 paddr_t gic_dist_base, gic_cpu_base, gic_dist_size, gic_cpu_size;
 
 void
-ampintc_attach(struct device *parent, struct device *self, void *args)
+ampintc_attach_cortex(struct device *parent, struct device *self,
+    void *args)
 {
 	struct ampintc_softc *sc = (struct ampintc_softc *)self;
 	struct cortex_attach_args *ia = args;
-	int i, nintr;
-	bus_space_tag_t		iot;
-	bus_space_handle_t	d_ioh, p_ioh;
-	uint32_t		icp, icpsize, icd, icdsize;
+	uint32_t icp, icpsize, icd, icdsize;
 
-	ampintc = sc;
-
-	arm_init_smask();
-
-	iot = ia->ca_iot;
+	sc->sc_iot = ia->ca_iot;
 	icp = ia->ca_periphbase + ICP_ADDR;
 	icpsize = ICP_SIZE;
 	icd = ia->ca_periphbase + ICD_ADDR;
@@ -241,15 +275,97 @@ ampintc_attach(struct device *parent, struct device *self, void *args)
 	if (gic_dist_size)
 		icdsize = gic_dist_size;
 
-	if (bus_space_map(iot, icp, icpsize, 0, &p_ioh))
+	if (bus_space_map(sc->sc_iot, icp, icpsize, 0, &sc->sc_p_ioh))
 		panic("ampintc_attach: ICP bus_space_map failed!");
 
-	if (bus_space_map(iot, icd, icdsize, 0, &d_ioh))
+	if (bus_space_map(sc->sc_iot, icd, icdsize, 0, &sc->sc_d_ioh))
 		panic("ampintc_attach: ICD bus_space_map failed!");
 
-	sc->sc_iot = iot;
-	sc->sc_d_ioh = d_ioh;
-	sc->sc_p_ioh = p_ioh;
+	ampintc_attach(parent, self, args);
+}
+
+void
+ampintc_attach_fdt(struct device *parent, struct device *self,
+    void *args)
+{
+	struct ampintc_softc *sc = (struct ampintc_softc *)self;
+	struct fdt_attach_args *fa = args;
+	uint32_t icp, icpsize, icd, icdsize;
+	int nac, nsc, inlen, pnode, off;
+	uint32_t buffer[8];
+
+	sc->sc_iot = fa->fa_iot;
+
+	if ((pnode = OF_parent(fa->fa_node)) == 0)
+		panic("%s: cannot get device tree parent", __func__);
+
+	inlen = OF_getprop(pnode, "#address-cells", buffer,
+	    sizeof(buffer));
+	if (inlen != sizeof(uint32_t))
+		panic("%s: cannot get address cells", __func__);
+	nac = betoh32(buffer[0]);
+
+	inlen = OF_getprop(pnode, "#size-cells", buffer,
+	    sizeof(buffer));
+	if (inlen != sizeof(uint32_t))
+		panic("%s: cannot get size cells", __func__);
+	nsc = betoh32(buffer[0]);
+
+	inlen = OF_getprop(fa->fa_node, "reg", buffer,
+	    sizeof(buffer));
+	if (inlen < 2 * (nac+nsc) * sizeof(uint32_t))
+		panic("%s: cannot extract both rows", __func__);
+
+	/* XXX: try to cope with 64-byte bus addresses */
+	/* First row: ICD */
+	off = 0;
+	icd = betoh32(buffer[off]);
+	if (nac == 2)
+		icd = betoh32(buffer[off + 1]);
+
+	icdsize = betoh32(buffer[off + nac]);
+	if (nsc == 2)
+		icdsize = betoh32(buffer[off + nac + 1]);
+
+	if (bus_space_map(sc->sc_iot, icd, icdsize, 0, &sc->sc_d_ioh))
+		panic("%s: ICD bus_space_map failed!", __func__);
+
+	/* Second row: ICP */
+	off = nac + nsc;
+	icp = betoh32(buffer[off]);
+	if (nac == 2)
+		icp = betoh32(buffer[off + 1]);
+
+	icpsize = betoh32(buffer[off + nac]);
+	if (nsc == 2)
+		icpsize = betoh32(buffer[off + nac + 1]);
+
+	if (bus_space_map(sc->sc_iot, icp, icpsize, 0, &sc->sc_p_ioh))
+		panic("%s: ICP bus_space_map failed!", __func__);
+
+	if (OF_getprop(fa->fa_node, "#interrupt-cells", &sc->sc_ncells,
+	    sizeof(sc->sc_ncells)) != sizeof(sc->sc_ncells))
+		panic("%s: no #interrupt-cells property", __func__);
+	sc->sc_ncells = betoh32(sc->sc_ncells);
+
+	ampintc_attach(parent, self, args);
+}
+
+void
+ampintc_attach(struct device *parent, struct device *self, void *args)
+{
+	struct ampintc_softc *sc = (struct ampintc_softc *)self;
+	int i, nintr;
+	bus_space_tag_t		iot;
+	bus_space_handle_t	d_ioh, p_ioh;
+
+	ampintc = sc;
+
+	iot = sc->sc_iot;
+	d_ioh = sc->sc_d_ioh;
+	p_ioh = sc->sc_p_ioh;
+
+	arm_init_smask();
 
 	evcount_attach(&sc->sc_spur, "irq1023/spur", NULL);
 

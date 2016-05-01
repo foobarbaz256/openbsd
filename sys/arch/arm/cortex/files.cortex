@@ -7,7 +7,8 @@ file	arch/arm/cortex/cortex.c		cortex
 
 device	ampintc
 attach	ampintc at cortex
-file	arch/arm/cortex/ampintc.c		ampintc
+attach	ampintc at fdt with ampintc_fdt
+file	arch/arm/cortex/ampintc.c		ampintc | ampintc_fdt
 
 device	amptimer
 attach	amptimer at cortex
