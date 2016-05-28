@@ -73,6 +73,9 @@
 #define  CCCR_BUS_WIDTH_4		(2<<0)
 #define  CCCR_BUS_WIDTH_8		(3<<0)
 #define SD_IO_CCCR_CISPTR		0x09 /* XXX 9-10, 10-11, or 9-12 */
+#define SD_IO_CCCR_HIGH_SPEED		0x13
+#define  CCCR_HIGH_SPEED_SHS		(1<<0) /* Support High-Speed */
+#define  CCCR_HIGH_SPEED_EHS		(1<<1) /* Enable High-Speed */
 
 /* Function Basic Registers (FBR) */
 #define SD_IO_FBR_START			0x00100
