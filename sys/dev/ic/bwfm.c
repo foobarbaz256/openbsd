@@ -40,15 +40,21 @@
 
 #include <dev/sdmmc/sdmmcvar.h>
 
-int	 bwfm_match(struct device *, void *, void *);
-void	 bwfm_attach(struct device *, struct device *, void *);
-void	 bwfm_attach_deferred(struct device *);
-int	 bwfm_detach(struct device *, int);
-
 struct bwfm_softc {
 	struct device		  sc_dev;
 	struct sdmmc_function	**sc_sf;
+	uint32_t		  sc_bar0;
 };
+
+int		 bwfm_match(struct device *, void *, void *);
+void		 bwfm_attach(struct device *, struct device *, void *);
+void		 bwfm_attach_deferred(struct device *);
+int		 bwfm_detach(struct device *, int);
+
+uint8_t		 bwfm_read_1(struct bwfm_softc *, uint32_t);
+uint32_t	 bwfm_read_4(struct bwfm_softc *, uint32_t);
+void		 bwfm_write_1(struct bwfm_softc *, uint32_t, uint8_t);
+void		 bwfm_write_4(struct bwfm_softc *, uint32_t, uint32_t);
 
 struct cfattach bwfm_ca = {
 	sizeof(struct bwfm_softc),
@@ -121,6 +127,9 @@ bwfm_attach(struct device *parent, struct device *self, void *aux)
 		goto err;
 	}
 
+	printf("%s: F1 signature read @0x18000000=%x\n", DEVNAME(sc),
+	    bwfm_read_4(sc, 0x18000000));
+
 	/* FIXME re-lock again */
 	rw_enter_write(&sf->sc->sc_lock);
 
@@ -137,4 +146,114 @@ int
 bwfm_detach(struct device *self, int flags)
 {
 	return 0;
+}
+
+uint8_t
+bwfm_read_1(struct bwfm_softc *sc, uint32_t addr)
+{
+	struct sdmmc_function *sf;
+	uint8_t rv;
+
+	/*
+	 * figure out how to read the register based on address range
+	 * 0x00 ~ 0x7FF: function 0 CCCR and FBR
+	 * 0x10000 ~ 0x1FFFF: function 1 miscellaneous registers
+	 * The rest: function 1 silicon backplane core registers
+	 */
+	if ((addr & ~0x7ff) == 0)
+		sf = sc->sc_sf[0];
+	else
+		sf = sc->sc_sf[1];
+
+	rw_enter_write(&sf->sc->sc_lock);
+	rv = sdmmc_io_read_1(sf, addr);
+	rw_exit(&sf->sc->sc_lock);
+	return rv;
+}
+
+uint32_t
+bwfm_read_4(struct bwfm_softc *sc, uint32_t addr)
+{
+	struct sdmmc_function *sf;
+	uint32_t bar0 = addr & ~0x7fff;
+	uint32_t rv;
+
+	if (sc->sc_bar0 != bar0) {
+		bwfm_write_1(sc, SBSDIO_FUNC1_SBADDRLOW, (bar0 >>  8) & 0x80);
+		bwfm_write_1(sc, SBSDIO_FUNC1_SBADDRMID, (bar0 >> 16) & 0xff);
+		bwfm_write_1(sc, SBSDIO_FUNC1_SBADDRHIGH, (bar0 >> 24) & 0xff);
+		sc->sc_bar0 = bar0;
+	}
+
+	addr &= 0x7fff;
+	addr |= 0x8000;
+
+	/*
+	 * figure out how to read the register based on address range
+	 * 0x00 ~ 0x7FF: function 0 CCCR and FBR
+	 * 0x10000 ~ 0x1FFFF: function 1 miscellaneous registers
+	 * The rest: function 1 silicon backplane core registers
+	 */
+	if ((addr & ~0x7ff) == 0)
+		sf = sc->sc_sf[0];
+	else
+		sf = sc->sc_sf[1];
+
+	rw_enter_write(&sf->sc->sc_lock);
+	rv = sdmmc_io_read_4(sf, addr);
+	rw_exit(&sf->sc->sc_lock);
+	return rv;
+}
+
+void
+bwfm_write_1(struct bwfm_softc *sc, uint32_t addr, uint8_t data)
+{
+	struct sdmmc_function *sf;
+
+	/*
+	 * figure out how to read the register based on address range
+	 * 0x00 ~ 0x7FF: function 0 CCCR and FBR
+	 * 0x10000 ~ 0x1FFFF: function 1 miscellaneous registers
+	 * The rest: function 1 silicon backplane core registers
+	 */
+	if ((addr & ~0x7ff) == 0)
+		sf = sc->sc_sf[0];
+	else
+		sf = sc->sc_sf[1];
+
+	rw_enter_write(&sf->sc->sc_lock);
+	sdmmc_io_write_1(sf, addr, data);
+	rw_exit(&sf->sc->sc_lock);
+}
+
+void
+bwfm_write_4(struct bwfm_softc *sc, uint32_t addr, uint32_t data)
+{
+	struct sdmmc_function *sf;
+	uint32_t bar0 = addr & ~0x7fff;
+
+	if (sc->sc_bar0 != bar0) {
+		bwfm_write_1(sc, 0x1000A, (bar0 >>  8) & 0x80);
+		bwfm_write_1(sc, 0x1000B, (bar0 >> 16) & 0xff);
+		bwfm_write_1(sc, 0x1000C, (bar0 >> 24) & 0xff);
+		sc->sc_bar0 = bar0;
+	}
+
+	addr &= 0x7fff;
+	addr |= 0x8000;
+
+	/*
+	 * figure out how to read the register based on address range
+	 * 0x00 ~ 0x7FF: function 0 CCCR and FBR
+	 * 0x10000 ~ 0x1FFFF: function 1 miscellaneous registers
+	 * The rest: function 1 silicon backplane core registers
+	 */
+	if ((addr & ~0x7ff) == 0)
+		sf = sc->sc_sf[0];
+	else
+		sf = sc->sc_sf[1];
+
+	rw_enter_write(&sf->sc->sc_lock);
+	sdmmc_io_write_4(sf, addr, data);
+	rw_exit(&sf->sc->sc_lock);
 }
