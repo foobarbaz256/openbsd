@@ -107,14 +107,11 @@ bwfm_attach(struct device *parent, struct device *self, void *aux)
 	SIMPLEQ_FOREACH(sf, &saa->sf->sc->sf_head, sf_list) {
 		sc->sc_sf[sf->number] = sf;
 	}
+	sf = saa->sf;
 
-	config_defer(self, bwfm_attach_deferred);
-}
-
-void
-bwfm_attach_deferred(struct device *self)
-{
-	struct bwfm_softc *sc = (struct bwfm_softc *)self;
+	/* FIXME bus is locked in attach */
+	rw_assert_wrlock(&sf->sc->sc_lock);
+	rw_exit(&sf->sc->sc_lock);
 
 	/* TODO: set block size */
 
@@ -124,10 +121,16 @@ bwfm_attach_deferred(struct device *self)
 		goto err;
 	}
 
+	/* FIXME re-lock again */
+	rw_enter_write(&sf->sc->sc_lock);
+
 	return;
 
 err:
 	free(sc->sc_sf, M_DEVBUF, 0);
+
+	/* FIXME re-lock again */
+	rw_enter_write(&sf->sc->sc_lock);
 }
 
 int
