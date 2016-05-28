@@ -169,6 +169,8 @@ sdmmc_io_scan(struct sdmmc_softc *sc)
 int
 sdmmc_io_init(struct sdmmc_softc *sc, struct sdmmc_function *sf)
 {
+	uint8_t reg;
+
 	rw_assert_wrlock(&sc->sc_lock);
 
 	if (sdmmc_read_cis(sf, &sf->cis) != 0) {
@@ -183,9 +185,23 @@ sdmmc_io_init(struct sdmmc_softc *sc, struct sdmmc_function *sf)
 		sdmmc_print_cis(sf);
 
 	if (sf->number == 0) {
-		/* XXX respect host and card capabilities */
-		(void)sdmmc_chip_bus_clock(sc->sct, sc->sch,
-		    25000, SDMMC_TIMING_LEGACY);
+		uint32_t freq = SDMMC_SDCLK_400KHZ;
+		uint32_t timing = SDMMC_TIMING_LEGACY;
+
+		reg = sdmmc_io_read_1(sf, SD_IO_CCCR_HIGH_SPEED);
+		if (reg & CCCR_HIGH_SPEED_SHS) {
+			reg |= CCCR_HIGH_SPEED_EHS;
+			sdmmc_io_write_1(sf, SD_IO_CCCR_HIGH_SPEED, reg);
+
+			freq = SDMMC_SDCLK_50MHZ;
+			timing = SDMMC_TIMING_HIGHSPEED;
+
+			/* Wait 400KHz x 8 clock */
+			delay(1);
+		}
+
+		if (sdmmc_chip_bus_clock(sc->sct, sc->sch, freq, timing) != 0)
+			printf("%s: can't change bus clock\n", DEVNAME(sc));
 	}
 
 	return 0;
