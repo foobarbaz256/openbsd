@@ -217,12 +217,12 @@ sdmmc_io_function_ready(struct sdmmc_function *sf)
 	struct sdmmc_function *sf0 = sc->sc_fn0;
 	u_int8_t rv;
 
-	rw_assert_wrlock(&sc->sc_lock);
-
 	if (sf->number == 0)
 		return 1;	/* FN0 is always ready */
 
+	rw_enter_write(&sc->sc_lock);
 	rv = sdmmc_io_read_1(sf0, SD_IO_CCCR_FN_READY);
+	rw_exit(&sc->sc_lock);
 
 	return (rv & (1 << sf->number)) != 0;
 }
@@ -264,14 +264,14 @@ sdmmc_io_function_disable(struct sdmmc_function *sf)
 	struct sdmmc_function *sf0 = sc->sc_fn0;
 	u_int8_t rv;
 
-	rw_assert_wrlock(&sc->sc_lock);
-
 	if (sf->number == 0)
 		return;		/* FN0 is always enabled */
 
+	rw_enter_write(&sc->sc_lock);
 	rv = sdmmc_io_read_1(sf0, SD_IO_CCCR_FN_ENABLE);
 	rv &= ~(1<<sf->number);
 	sdmmc_io_write_1(sf0, SD_IO_CCCR_FN_ENABLE, rv);
+	rw_exit(&sc->sc_lock);
 }
 
 void
