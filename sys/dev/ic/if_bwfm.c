@@ -40,7 +40,7 @@
 
 #include <dev/sdmmc/sdmmcvar.h>
 
-#include <dev/ic/bwfmreg.h>
+#include <dev/ic/if_bwfmreg.h>
 
 #ifdef BWFM_DEBUG
 #define DPRINTF(x)	do { if (bwfm_debug > 0) printf x; } while (0)

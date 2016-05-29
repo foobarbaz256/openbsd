@@ -303,6 +303,7 @@ sdhc*	at pci?			# SD Host Controller
 sdmmc*	at sdhc?		# SD/MMC bus
 rtsx*	at pci?			# Realtek SD Card Reader
 sdmmc*	at rtsx?		# SD/MMC bus
+bwfm*	at sdmmc?		# Broadcom FullMAC
 
 isadma0	at isa?
 
