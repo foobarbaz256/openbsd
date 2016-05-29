@@ -40,6 +40,17 @@
 
 #include <dev/sdmmc/sdmmcvar.h>
 
+#include <dev/ic/bwfmreg.h>
+
+#ifdef BWFM_DEBUG
+#define DPRINTF(x)	do { if (bwfm_debug > 0) printf x; } while (0)
+#define DPRINTFN(n, x)	do { if (bwfmm_debug >= (n)) printf x; } while (0)
+int bfwm_debug = 1;
+#else
+#define DPRINTF(x)	do { ; } while (0)
+#define DPRINTFN(n, x)	do { ; } while (0)
+#endif
+
 struct bwfm_softc {
 	struct device		  sc_dev;
 	struct sdmmc_function	**sc_sf;
@@ -127,8 +138,13 @@ bwfm_attach(struct device *parent, struct device *self, void *aux)
 		goto err;
 	}
 
-	printf("%s: F1 signature read @0x18000000=%x\n", DEVNAME(sc),
-	    bwfm_read_4(sc, 0x18000000));
+	DPRINTF(("%s: F1 signature read @0x18000000=%x\n", DEVNAME(sc),
+	    bwfm_read_4(sc, 0x18000000)));
+
+	/* Force PLL off */
+	bwfm_write_1(sc, BWFM_SDIO_FUNC1_CHIPCLKCSR,
+	    BWFM_SDIO_FUNC1_CHIPCLKCSR_FORCE_HW_CLKREQ_OFF |
+	    BWFM_SDIO_FUNC1_CHIPCLKCSR_ALP_AVAIL_REQ);
 
 	/* FIXME re-lock again */
 	rw_enter_write(&sf->sc->sc_lock);
@@ -179,14 +195,17 @@ bwfm_read_4(struct bwfm_softc *sc, uint32_t addr)
 	uint32_t rv;
 
 	if (sc->sc_bar0 != bar0) {
-		bwfm_write_1(sc, SBSDIO_FUNC1_SBADDRLOW, (bar0 >>  8) & 0x80);
-		bwfm_write_1(sc, SBSDIO_FUNC1_SBADDRMID, (bar0 >> 16) & 0xff);
-		bwfm_write_1(sc, SBSDIO_FUNC1_SBADDRHIGH, (bar0 >> 24) & 0xff);
+		bwfm_write_1(sc, BWFM_SDIO_FUNC1_SBADDRLOW,
+		    (bar0 >>  8) & 0x80);
+		bwfm_write_1(sc, BWFM_SDIO_FUNC1_SBADDRMID,
+		    (bar0 >> 16) & 0xff);
+		bwfm_write_1(sc, BWFM_SDIO_FUNC1_SBADDRHIGH,
+		    (bar0 >> 24) & 0xff);
 		sc->sc_bar0 = bar0;
 	}
 
-	addr &= 0x7fff;
-	addr |= 0x8000;
+	addr &= BWFM_SDIO_SB_OFT_ADDR_MASK;
+	addr |= BWFM_SDIO_SB_ACCESS_2_4B_FLAG;
 
 	/*
 	 * figure out how to read the register based on address range
