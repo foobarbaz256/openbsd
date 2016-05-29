@@ -130,7 +130,12 @@ bwfm_attach(struct device *parent, struct device *self, void *aux)
 	rw_assert_wrlock(&sf->sc->sc_lock);
 	rw_exit(&sf->sc->sc_lock);
 
-	/* TODO: set block size */
+	/*
+	 * TODO: set block size to 64 for func 1, 512 for func 2.
+	 * We might need to work on the SDMMC stack to be able to set
+	 * a block size per function.  Currently the IO code uses the
+	 * SDHC controller's maximum block length.
+	 */
 
 	/* Enable Function 1. */
 	if (sdmmc_io_function_enable(sc->sc_sf[1]) != 0) {
