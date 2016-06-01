@@ -15,7 +15,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 /*
- * Copyright (c) 2010 Broadcom Corporation
+ * Copyright (c) 2011 Broadcom Corporation
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -46,6 +46,7 @@
 #include <dev/usb/usbdivar.h>
 #include <dev/usb/usbdevs.h>
 
+#include <dev/ic/if_bwfmvar.h>
 #include <dev/ic/if_bwfmreg.h>
 
 /*
@@ -68,13 +69,95 @@ int bfwm_debug = 1;
 #define DPRINTFN(n, x)	do { ; } while (0)
 #endif
 
+#define DEVNAME(sc)	((sc)->sc_dev.dv_xname)
+
+#define BRCMF_POSTBOOT_ID	0xA123	/* ID to detect if dongle
+					 * has boot up
+					 */
+
+#define TRX_MAGIC		0x30524448	/* "HDR0" */
+#define TRX_MAX_OFFSET		3		/* Max number of file offsets */
+#define TRX_UNCOMP_IMAGE	0x20		/* Trx holds uncompressed img */
+#define TRX_RDL_CHUNK		1500		/* size of each dl transfer */
+#define TRX_OFFSETS_DLFWLEN_IDX	0
+
+/* Control messages: bRequest values */
+#define DL_GETSTATE	0	/* returns the rdl_state_t struct */
+#define DL_CHECK_CRC	1	/* currently unused */
+#define DL_GO		2	/* execute downloaded image */
+#define DL_START	3	/* initialize dl state */
+#define DL_REBOOT	4	/* reboot the device in 2 seconds */
+#define DL_GETVER	5	/* returns the bootrom_id_t struct */
+#define DL_GO_PROTECTED	6	/* execute the downloaded code and set reset
+				 * event to occur in 2 seconds.  It is the
+				 * responsibility of the downloaded code to
+				 * clear this event
+				 */
+#define DL_EXEC		7	/* jump to a supplied address */
+#define DL_RESETCFG	8	/* To support single enum on dongle
+				 * - Not used by bootloader
+				 */
+#define DL_DEFER_RESP_OK 9	/* Potentially defer the response to setup
+				 * if resp unavailable
+				 */
+
+/* states */
+#define DL_WAITING	0	/* waiting to rx first pkt */
+#define DL_READY	1	/* hdr was good, waiting for more of the
+				 * compressed image
+				 */
+#define DL_BAD_HDR	2	/* hdr was corrupted */
+#define DL_BAD_CRC	3	/* compressed image was corrupted */
+#define DL_RUNNABLE	4	/* download was successful,waiting for go cmd */
+#define DL_START_FAIL	5	/* failed to initialize correctly */
+#define DL_NVRAM_TOOBIG	6	/* host specified nvram data exceeds DL_NVRAM
+				 * value
+				 */
+#define DL_IMAGE_TOOBIG	7	/* firmware image too big */
+
+
+struct trx_header {
+	uint32_t	magic;			/* "HDR0" */
+	uint32_t	len;			/* Length of file including header */
+	uint32_t	crc32;			/* CRC from flag_version to end of file */
+	uint32_t	flag_version;		/* 0:15 flags, 16:31 version */
+	uint32_t	offsets[TRX_MAX_OFFSET];/* Offsets of partitions from start of
+						 * header
+						 */
+};
+
+struct bootrom_id {
+	uint32_t	chip;		/* Chip id */
+	uint32_t	chiprev;	/* Chip rev */
+	uint32_t	ramsize;	/* Size of  RAM */
+	uint32_t	remapbase;	/* Current remap base address */
+	uint32_t	boardtype;	/* Type of board */
+	uint32_t	boardrev;	/* Board revision */
+};
+
 struct bwfm_softc {
-	struct device		  sc_dev;
+	struct device		 sc_dev;
+	struct usbd_device	*sc_udev;
+	struct usbd_interface	*sc_iface;
+
+	uint16_t		 sc_vendor;
+	uint16_t		 sc_product;
+
+	uint32_t		 sc_chip;
+	uint32_t		 sc_chiprev;
+
+	int			 sc_rx_no;
+	int			 sc_tx_no;
 };
 
 int		 bwfm_usb_match(struct device *, void *, void *);
+void		 bwfm_usb_attachhook(struct device *);
 void		 bwfm_usb_attach(struct device *, struct device *, void *);
 int		 bwfm_usb_detach(struct device *, int);
+
+int		 bwfm_usb_dl_cmd(struct bwfm_softc *, uint8_t, void *, int);
+int		 bwfm_usb_load_microcode(struct bwfm_softc *, const u_char *,
+    size_t);
 
 struct cfattach bwfm_usb_ca = {
 	sizeof(struct bwfm_softc),
@@ -96,9 +179,116 @@ bwfm_usb_match(struct device *parent, void *match, void *aux)
 }
 
 void
+bwfm_usb_attachhook(struct device *self)
+{
+	struct bwfm_softc *sc = (struct bwfm_softc *)self;
+	const char *name = NULL;
+	u_char *ucode;
+	size_t size;
+	int error;
+
+	switch (sc->sc_chip)
+	{
+	case BRCM_CC_43143_CHIP_ID:
+		name = "brcmfmac43143.bin";
+		break;
+	case BRCM_CC_43235_CHIP_ID:
+	case BRCM_CC_43236_CHIP_ID:
+	case BRCM_CC_43238_CHIP_ID:
+		if (sc->sc_chiprev == 3)
+			name = "brcmfmac43236b.bin";
+		break;
+	case BRCM_CC_43242_CHIP_ID:
+		name = "brcmfmac43242a.bin";
+		break;
+	case BRCM_CC_43566_CHIP_ID:
+	case BRCM_CC_43569_CHIP_ID:
+		name = "brcmfmac43569.bin";
+		break;
+	default:
+		break;
+	}
+
+	if (name == NULL) {
+		printf("%s: unknown firmware\n", DEVNAME(sc));
+		return;
+	}
+
+	if ((error = loadfirmware(name, &ucode, &size)) != 0) {
+		printf("%s: failed loadfirmware of file %s (error %d)\n",
+		    DEVNAME(sc), name, error);
+		return;
+	}
+
+	if (bwfm_usb_load_microcode(sc, ucode, size) != 0) {
+		printf("%s: could not load microcode\n",
+		    DEVNAME(sc));
+	}
+
+	printf("%s: firmware loaded\n", DEVNAME(sc));
+
+	free(ucode, M_DEVBUF, 0);
+}
+
+void
 bwfm_usb_attach(struct device *parent, struct device *self, void *aux)
 {
-	printf("\n");
+	struct bwfm_softc *sc = (struct bwfm_softc *)self;
+	struct usb_attach_arg *uaa = aux;
+	usb_device_descriptor_t *dd;
+	usb_interface_descriptor_t *id;
+	usb_endpoint_descriptor_t *ed;
+	struct bootrom_id brom;
+	int i;
+
+	sc->sc_udev = uaa->device;
+	sc->sc_iface = uaa->iface;
+	sc->sc_vendor = uaa->vendor;
+	sc->sc_product = uaa->product;
+
+	/* Check number of configurations. */
+	dd = usbd_get_device_descriptor(sc->sc_udev);
+	if (dd->bNumConfigurations != 1) {
+		printf("%s: number of configurations not supported\n",
+		    DEVNAME(sc));
+		return;
+	}
+
+	/* Get endpoints. */
+	id = usbd_get_interface_descriptor(sc->sc_iface);
+
+	sc->sc_rx_no = sc->sc_tx_no = -1;
+	for (i = 0; i < id->bNumEndpoints; i++) {
+		ed = usbd_interface2endpoint_descriptor(sc->sc_iface, i);
+		if (ed == NULL) {
+			printf("%s: no endpoint descriptor for iface %d\n",
+			    DEVNAME(sc), i);
+			return;
+		}
+
+		if (UE_GET_DIR(ed->bEndpointAddress) == UE_DIR_IN &&
+		    UE_GET_XFERTYPE(ed->bmAttributes) == UE_BULK)
+			sc->sc_rx_no = ed->bEndpointAddress;
+		else if (UE_GET_DIR(ed->bEndpointAddress) == UE_DIR_OUT &&
+		    UE_GET_XFERTYPE(ed->bmAttributes) == UE_BULK)
+			sc->sc_tx_no = ed->bEndpointAddress;
+	}
+	if (sc->sc_rx_no == -1 || sc->sc_tx_no == -1) {
+		printf("%s: missing endpoint\n", DEVNAME(sc));
+		return;
+	}
+
+	/* Read chip id and chip rev to check the firmware. */
+	memset(&brom, 0, sizeof(brom));
+	bwfm_usb_dl_cmd(sc, DL_GETVER, &brom, sizeof(brom));
+	sc->sc_chip = letoh32(brom.chip);
+	sc->sc_chiprev = letoh32(brom.chiprev);
+
+	/* Firmware already loaded? */
+	if (sc->sc_chip == BRCMF_POSTBOOT_ID)
+		bwfm_usb_dl_cmd(sc, DL_RESETCFG, &brom, sizeof(brom));
+	else
+		config_mountroot(self, bwfm_usb_attachhook);
 
 	return;
 }
@@ -106,5 +296,42 @@ bwfm_usb_attach(struct device *parent, struct device *self, void *aux)
 int
 bwfm_usb_detach(struct device *self, int flags)
 {
+	return 0;
+}
+
+int
+bwfm_usb_dl_cmd(struct bwfm_softc *sc, uByte cmd, void *buf, int len)
+{
+	usb_device_request_t req;
+	usbd_status error;
+
+	req.bmRequestType = UT_READ_VENDOR_INTERFACE;
+	req.bRequest = cmd;
+
+	USETW(req.wValue, 0);
+	USETW(req.wIndex, 0);
+	USETW(req.wLength, len);
+
+	error = usbd_do_request(sc->sc_udev, &req, buf);
+	if (error != 0) {
+		printf("%s: could not read register: %s\n",
+		    DEVNAME(sc), usbd_errstr(error));
+	}
+	return error;
+}
+
+int
+bwfm_usb_load_microcode(struct bwfm_softc *sc, const u_char *ucode, size_t size)
+{
+	struct trx_header *trx = (struct trx_header *)ucode;
+
+	if (letoh32(trx->magic) != TRX_MAGIC ||
+	     (letoh32(trx->flag_version) & TRX_UNCOMP_IMAGE) == 0) {
+		printf("%s: invalid firmware\n", DEVNAME(sc));
+		return 1;
+	}
+
+	/* TODO: actually load firmware */
+
 	return 0;
 }
