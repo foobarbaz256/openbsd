@@ -13,5 +13,8 @@ file	dev/sdmmc/sdmmc_mem.c		sdmmc
 file	dev/sdmmc/sdmmc_scsi.c		sdmmc
 
 device	bwfm: ifnet, wlan, firmload
-attach	bwfm at sdmmc
+attach	bwfm at sdmmc with bwfm_sdio
+attach	bwfm at uhub with bwfm_usb
 file	dev/ic/if_bwfm.c		bwfm
+file	dev/ic/if_bwfm_sdio.c		bwfm_sdio
+file	dev/ic/if_bwfm_usb.c		bwfm_usb
