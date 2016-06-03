@@ -382,8 +382,9 @@ bwfm_usb_load_microcode(struct bwfm_softc *sc, const u_char *ucode, size_t size)
 	xfer = usbd_alloc_xfer(sc->sc_udev);
 	if (xfer == NULL) {
 		printf("%s: cannot alloc xfer\n", DEVNAME(sc));
-		return 1;
+		goto err;
 	}
+
 	buf = usbd_alloc_buffer(xfer, TRX_RDL_CHUNK);
 	if (buf == NULL) {
 		printf("%s: cannot alloc buf\n", DEVNAME(sc));
