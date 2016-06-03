@@ -126,6 +126,11 @@ struct trx_header {
 						 */
 };
 
+struct rdl_state {
+	uint32_t	state;
+	uint32_t	bytes;
+};
+
 struct bootrom_id {
 	uint32_t	chip;		/* Chip id */
 	uint32_t	chiprev;	/* Chip rev */
@@ -148,6 +153,9 @@ struct bwfm_softc {
 
 	int			 sc_rx_no;
 	int			 sc_tx_no;
+
+	struct usbd_pipe	*sc_rx_pipeh;
+	struct usbd_pipe	*sc_tx_pipeh;
 };
 
 int		 bwfm_usb_match(struct device *, void *, void *);
@@ -183,9 +191,10 @@ bwfm_usb_attachhook(struct device *self)
 {
 	struct bwfm_softc *sc = (struct bwfm_softc *)self;
 	const char *name = NULL;
+	struct bootrom_id brom;
 	u_char *ucode;
 	size_t size;
-	int error;
+	int error, i;
 
 	switch (sc->sc_chip)
 	{
@@ -223,7 +232,24 @@ bwfm_usb_attachhook(struct device *self)
 	if (bwfm_usb_load_microcode(sc, ucode, size) != 0) {
 		printf("%s: could not load microcode\n",
 		    DEVNAME(sc));
+		return;
 	}
+
+	memset(&brom, 0, sizeof(brom));
+	for (i = 0; i < 10; i++) {
+		delay(100 * 1000);
+		bwfm_usb_dl_cmd(sc, DL_GETVER, &brom, sizeof(brom));
+		if (letoh32(brom.chip) == BRCMF_POSTBOOT_ID)
+			break;
+	}
+
+	if (letoh32(brom.chip) != BRCMF_POSTBOOT_ID) {
+		printf("%s: firmware did not start up\n",
+		    DEVNAME(sc));
+		return;
+	}
+
+	bwfm_usb_dl_cmd(sc, DL_RESETCFG, &brom, sizeof(brom));
 
 	printf("%s: firmware loaded\n", DEVNAME(sc));
 
@@ -324,6 +350,11 @@ int
 bwfm_usb_load_microcode(struct bwfm_softc *sc, const u_char *ucode, size_t size)
 {
 	struct trx_header *trx = (struct trx_header *)ucode;
+	struct rdl_state state;
+	uint32_t rdlstate, rdlbytes, sent = 0, sendlen = 0;
+	struct usbd_xfer *xfer;
+	usbd_status error;
+	char *buf;
 
 	if (letoh32(trx->magic) != TRX_MAGIC ||
 	     (letoh32(trx->flag_version) & TRX_UNCOMP_IMAGE) == 0) {
@@ -331,7 +362,83 @@ bwfm_usb_load_microcode(struct bwfm_softc *sc, const u_char *ucode, size_t size)
 		return 1;
 	}
 
-	/* TODO: actually load firmware */
+	bwfm_usb_dl_cmd(sc, DL_START, &state, sizeof(state));
+	rdlstate = letoh32(state.state);
+	rdlbytes = letoh32(state.bytes);
+
+	if (rdlstate != DL_WAITING) {
+		printf("%s: cannot start fw download\n", DEVNAME(sc));
+		return 1;
+	}
+
+	error = usbd_open_pipe(sc->sc_iface, sc->sc_tx_no, USBD_EXCLUSIVE_USE,
+	    &sc->sc_tx_pipeh);
+	if (error != 0) {
+		printf("%s: could not open Tx pipe: %s\n",
+		    DEVNAME(sc), usbd_errstr(error));
+		return 1;
+	}
+
+	xfer = usbd_alloc_xfer(sc->sc_udev);
+	if (xfer == NULL) {
+		printf("%s: cannot alloc xfer\n", DEVNAME(sc));
+		return 1;
+	}
+	buf = usbd_alloc_buffer(xfer, TRX_RDL_CHUNK);
+	if (buf == NULL) {
+		printf("%s: cannot alloc buf\n", DEVNAME(sc));
+		goto err;
+	}
+
+	while (rdlbytes != size) {
+		sendlen = MIN(size - sent, TRX_RDL_CHUNK);
+		memcpy(buf, ucode + sent, sendlen);
+
+		usbd_setup_xfer(xfer, sc->sc_tx_pipeh, NULL, buf, sendlen,
+		    USBD_SYNCHRONOUS | USBD_NO_COPY, USBD_NO_TIMEOUT, NULL);
+		error = usbd_transfer(xfer);
+		if (error != 0 && error != USBD_IN_PROGRESS) {
+			printf("%s: transfer error\n", DEVNAME(sc));
+			goto err;
+		}
+		sent += sendlen;
+
+		bwfm_usb_dl_cmd(sc, DL_GETSTATE, &state, sizeof(state));
+		rdlstate = letoh32(state.state);
+		rdlbytes = letoh32(state.bytes);
+
+		if (rdlbytes != sent) {
+			printf("%s: device reported different size\n",
+			    DEVNAME(sc));
+			goto err;
+		}
+
+		if (rdlstate == DL_BAD_HDR || rdlstate == DL_BAD_CRC) {
+			printf("%s: device reported bad hdr/crc\n",
+			    DEVNAME(sc));
+			goto err;
+		}
+	}
+
+	bwfm_usb_dl_cmd(sc, DL_GETSTATE, &state, sizeof(state));
+	rdlstate = letoh32(state.state);
+	rdlbytes = letoh32(state.bytes);
+
+	if (rdlstate != DL_RUNNABLE) {
+		printf("%s: dongle not runnable\n", DEVNAME(sc));
+		return err;
+	}
+
+	bwfm_usb_dl_cmd(sc, DL_GO, &state, sizeof(state));
 
 	return 0;
+err:
+	if (sc->sc_tx_pipeh != NULL) {
+		usbd_abort_pipe(sc->sc_tx_pipeh);
+		usbd_close_pipe(sc->sc_tx_pipeh);
+		sc->sc_tx_pipeh = NULL;
+	}
+	if (xfer != NULL)
+		usbd_free_xfer(xfer);
+	return 1;
 }
