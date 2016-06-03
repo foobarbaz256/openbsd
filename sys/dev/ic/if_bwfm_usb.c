@@ -426,7 +426,7 @@ bwfm_usb_load_microcode(struct bwfm_softc *sc, const u_char *ucode, size_t size)
 
 	if (rdlstate != DL_RUNNABLE) {
 		printf("%s: dongle not runnable\n", DEVNAME(sc));
-		return err;
+		goto err;
 	}
 
 	bwfm_usb_dl_cmd(sc, DL_GO, &state, sizeof(state));
